@@ -859,4 +859,46 @@ async def generate_title(conversation_messages) -> str:
         return messages[-2]["content"]
 
 
+@bp.route("/transcribe", methods=["POST"])
+async def transcribe_audio():
+    if 'file' not in request.files:
+        return jsonify({"error": "No file part"}), 400
+
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
+
+    if file and file.filename.endswith('.wav'):
+        try:
+            # Save the file temporarily
+            temp_filepath = os.path.join("/tmp", file.filename)
+            file.save(temp_filepath)
+            
+            # Use Whisper to transcribe the audio file
+            azure_openai_client = init_openai_client()
+            with open(temp_filepath, "rb") as audio_file:
+                transcript = azure_openai_client.audio.transcriptions("whisper-1", audio_file)
+
+            # Clean up the temporary file
+            os.remove(temp_filepath)
+            
+            # Create a request body for the chat completions endpoint
+            request_body = {
+                "messages": [
+                    {"role": "user", "content": transcript['text']}
+                ]
+            }
+            request_headers = request.headers
+            
+            # Send the transcribed text to the chat completions endpoint
+            response = await conversation_internal(request_body, request_headers)
+            return response
+
+        except Exception as e:
+            logging.exception("Exception in transcribe_audio")
+            return jsonify({"error": str(e)}), 500
+
+    return jsonify({"error": "Invalid file type, only .wav files are supported"}), 400
+
+
 app = create_app()
